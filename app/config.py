@@ -4,29 +4,51 @@ All values can be overridden via environment variables / .env file.
 """
 
 import os
+
 from dotenv import load_dotenv
+
 
 load_dotenv()
 
 
 class Settings:
-    # --- General ---
-    APP_NAME: str = "Document Intelligence Platform"
-    ENV: str = os.getenv("ENV", "development")
 
-    # --- Database ---
+    # ============================================================
+    # GENERAL
+    # ============================================================
+
+    APP_NAME: str = "Document Intelligence Platform"
+
+    ENV: str = os.getenv(
+        "ENV",
+        "development"
+    )
+
+    # ============================================================
+    # DATABASE
+    # ============================================================
+
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
         "sqlite:///./docintel.db"
     )
 
-    # --- File constraints ---
+    # ============================================================
+    # FILE CONSTRAINTS
+    # ============================================================
+
     MAX_PAGES: int = int(
-        os.getenv("MAX_PAGES", "3")
+        os.getenv(
+            "MAX_PAGES",
+            "3"
+        )
     )
 
     MAX_FILE_SIZE_MB: int = int(
-        os.getenv("MAX_FILE_SIZE_MB", "15")
+        os.getenv(
+            "MAX_FILE_SIZE_MB",
+            "15"
+        )
     )
 
     ALLOWED_EXTENSIONS = {
@@ -36,7 +58,10 @@ class Settings:
         ".png"
     }
 
-    # --- LLM (Google Gemini) ---
+    # ============================================================
+    # LLM - GOOGLE GEMINI
+    # ============================================================
+
     GEMINI_API_KEY: str = os.getenv(
         "GEMINI_API_KEY",
         ""
@@ -47,29 +72,64 @@ class Settings:
         "gemini-2.5-flash"
     )
 
-    # --- OCR ---
+    # ============================================================
+    # OCR
+    # ============================================================
+
+    # IMPORTANT:
+    #
+    # Do not hardcode a Windows Tesseract path here.
+    #
+    # Docker/Linux will automatically find Tesseract using
+    # shutil.which("tesseract") inside ocr_service.py.
+    #
+    # If you ever want to explicitly configure Tesseract,
+    # set TESSERACT_CMD through the environment.
+    #
+
     TESSERACT_CMD: str = os.getenv(
         "TESSERACT_CMD",
-        r"C:\Program Files\Tesseract-OCR\tesseract.exe\tesseract.exe"
+        ""
     )
 
     OCR_DPI: int = int(
-        os.getenv("OCR_DPI", "300")
+        os.getenv(
+            "OCR_DPI",
+            "300"
+        )
     )
 
-    # --- Storage ---
+    # ============================================================
+    # STORAGE
+    # ============================================================
+
     UPLOAD_DIR: str = os.getenv(
         "UPLOAD_DIR",
         "./storage/uploads"
     )
 
-    # --- Financial validation tolerance ---
+    # ============================================================
+    # FINANCIAL VALIDATION
+    # ============================================================
+
     NUMERIC_TOLERANCE: float = float(
-        os.getenv("NUMERIC_TOLERANCE", "0.01")
+        os.getenv(
+            "NUMERIC_TOLERANCE",
+            "0.01"
+        )
     )
 
 
+# ================================================================
+# CREATE SETTINGS INSTANCE
+# ================================================================
+
 settings = Settings()
+
+
+# ================================================================
+# CREATE UPLOAD DIRECTORY
+# ================================================================
 
 os.makedirs(
     settings.UPLOAD_DIR,

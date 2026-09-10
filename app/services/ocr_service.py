@@ -11,6 +11,8 @@ and evidence/grounding layers know which page each snippet came from.
 """
 
 from dataclasses import dataclass
+import os
+import shutil
 
 import fitz  # PyMuPDF
 import pytesseract
@@ -27,25 +29,112 @@ logger = get_logger(__name__)
 # TESSERACT CONFIGURATION
 # ============================================================
 
-# Your Tesseract installation is located inside a folder named
-# "tesseract.exe", and the actual executable is inside that folder.
-#
-# Verified executable:
-# C:\Program Files\Tesseract-OCR\tesseract.exe\tesseract.exe
-#
-# We first try to use the value from .env/config.
-# If it is missing, we fall back to the verified Windows path.
+def configure_tesseract():
+    """
+    Configure Tesseract for both Windows and Linux/Docker.
 
-TESSERACT_FALLBACK_PATH = (
-    r"C:\Program Files\Tesseract-OCR\tesseract.exe\tesseract.exe"
-)
+    Priority:
+      1. Valid TESSERACT_CMD from application settings
+      2. Windows standard installation paths
+      3. Tesseract found in PATH (Linux/Docker)
+    """
 
-tesseract_cmd = getattr(settings, "TESSERACT_CMD", None)
+    # --------------------------------------------------------
+    # 1. Check configured Tesseract path
+    # --------------------------------------------------------
 
-if tesseract_cmd:
-    pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
-else:
-    pytesseract.pytesseract.tesseract_cmd = TESSERACT_FALLBACK_PATH
+    configured_path = getattr(
+        settings,
+        "TESSERACT_CMD",
+        None
+    )
+
+    if configured_path:
+
+        configured_path = str(configured_path).strip()
+
+        # On Linux/Docker, do not use a Windows path.
+        if os.name != "nt" and (
+            "\\" in configured_path
+            or configured_path.lower().startswith("c:")
+            or configured_path.lower().startswith("d:")
+        ):
+
+            logger.warning(
+                "Ignoring Windows Tesseract path inside Linux/Docker: %s",
+                configured_path
+            )
+
+        elif os.path.isfile(configured_path):
+
+            pytesseract.pytesseract.tesseract_cmd = configured_path
+
+            logger.info(
+                "Using configured Tesseract executable: %s",
+                configured_path
+            )
+
+            return
+
+        else:
+
+            logger.warning(
+                "Configured Tesseract path does not exist: %s",
+                configured_path
+            )
+
+    # --------------------------------------------------------
+    # 2. Windows
+    # --------------------------------------------------------
+
+    if os.name == "nt":
+
+        windows_paths = [
+            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+        ]
+
+        for path in windows_paths:
+
+            if os.path.isfile(path):
+
+                pytesseract.pytesseract.tesseract_cmd = path
+
+                logger.info(
+                    "Using Windows Tesseract executable: %s",
+                    path
+                )
+
+                return
+
+    # --------------------------------------------------------
+    # 3. Linux / Docker
+    # --------------------------------------------------------
+
+    linux_path = shutil.which("tesseract")
+
+    if linux_path:
+
+        pytesseract.pytesseract.tesseract_cmd = linux_path
+
+        logger.info(
+            "Using Linux/Docker Tesseract executable: %s",
+            linux_path
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # 4. Tesseract not found
+    # --------------------------------------------------------
+
+    raise RuntimeError(
+        "Tesseract executable not found. "
+        "Install Tesseract or set a valid TESSERACT_CMD."
+    )
+
+
+configure_tesseract()
 
 
 # ============================================================
@@ -98,6 +187,7 @@ def _ocr_image(image: Image.Image) -> str:
     """
 
     try:
+
         # Convert to RGB to avoid issues with RGBA,
         # grayscale, palette, etc.
         image = image.convert("RGB")
@@ -107,10 +197,19 @@ def _ocr_image(image: Image.Image) -> str:
             config="--psm 6"
         )
 
+        logger.info(
+            "Tesseract OCR completed successfully. Text length=%s",
+            len(text.strip())
+        )
+
         return text or ""
 
     except Exception:
-        logger.exception("Tesseract OCR failed on an image")
+
+        logger.exception(
+            "Tesseract OCR failed on an image"
+        )
+
         return ""
 
 
@@ -126,7 +225,17 @@ def _ocr_pdf_page(page) -> str:
     """
 
     try:
-        dpi = getattr(settings, "OCR_DPI", 200)
+
+        dpi = getattr(
+            settings,
+            "OCR_DPI",
+            200
+        )
+
+        logger.info(
+            "Rasterizing PDF page for OCR at DPI=%s",
+            dpi
+        )
 
         pix = page.get_pixmap(
             dpi=dpi,
@@ -139,10 +248,21 @@ def _ocr_pdf_page(page) -> str:
             pix.samples
         )
 
-        return _ocr_image(img)
+        text = _ocr_image(img)
+
+        logger.info(
+            "PDF page OCR finished. Text length=%s",
+            len(text.strip())
+        )
+
+        return text
 
     except Exception:
-        logger.exception("OCR failed for PDF page")
+
+        logger.exception(
+            "OCR failed for PDF page"
+        )
+
         return ""
 
 
@@ -150,7 +270,10 @@ def _ocr_pdf_page(page) -> str:
 # MAIN EXTRACTION FUNCTION
 # ============================================================
 
-def extract_pages(file_path: str, ext: str) -> list[PageText]:
+def extract_pages(
+    file_path: str,
+    ext: str
+) -> list[PageText]:
     """
     Extract text page-by-page from supported documents.
 
@@ -174,21 +297,44 @@ def extract_pages(file_path: str, ext: str) -> list[PageText]:
     # Normalize extension
     ext = ext.lower().strip()
 
+    logger.info(
+        "Starting text extraction: file=%s ext=%s",
+        file_path,
+        ext
+    )
+
     # ========================================================
     # JPG / JPEG / PNG
     # ========================================================
 
-    if ext in (".jpg", ".jpeg", ".png"):
+    if ext in (
+        ".jpg",
+        ".jpeg",
+        ".png"
+    ):
 
         try:
+
             with Image.open(file_path) as img:
 
-                # Ensure image is loaded before leaving context manager.
+                # Ensure image is loaded before leaving
+                # context manager.
                 img.load()
+
+                logger.info(
+                    "Image opened successfully: size=%s mode=%s",
+                    img.size,
+                    img.mode
+                )
 
                 text = _ocr_image(
                     img.convert("RGB")
                 )
+
+            logger.info(
+                "Image extraction completed: text_length=%s",
+                len(text.strip())
+            )
 
             return [
                 PageText(
@@ -199,6 +345,7 @@ def extract_pages(file_path: str, ext: str) -> list[PageText]:
             ]
 
         except Exception:
+
             logger.exception(
                 "Failed to open/process image: %s",
                 file_path
@@ -221,27 +368,49 @@ def extract_pages(file_path: str, ext: str) -> list[PageText]:
         pages: list[PageText] = []
 
         try:
+
             doc = fitz.open(file_path)
 
+            logger.info(
+                "PDF opened successfully: pages=%s",
+                len(doc)
+            )
+
         except Exception:
+
             logger.exception(
                 "Failed to open PDF: %s",
                 file_path
             )
+
             raise
 
         try:
 
-            for i, page in enumerate(doc, start=1):
+            for i, page in enumerate(
+                doc,
+                start=1
+            ):
 
                 # ------------------------------------------------
                 # STEP 1: Try native PDF text extraction
                 # ------------------------------------------------
 
                 try:
-                    native_text = page.get_text("text") or ""
+
+                    native_text = (
+                        page.get_text("text")
+                        or ""
+                    )
+
+                    logger.info(
+                        "Page %s native text length=%s",
+                        i,
+                        len(native_text.strip())
+                    )
 
                 except Exception:
+
                     logger.exception(
                         "Native PDF text extraction failed "
                         "for page %s",
@@ -254,7 +423,9 @@ def extract_pages(file_path: str, ext: str) -> list[PageText]:
                 # STEP 2: Use native text if sufficient
                 # ------------------------------------------------
 
-                if len(native_text.strip()) >= MIN_NATIVE_CHARS_PER_PAGE:
+                if len(
+                    native_text.strip()
+                ) >= MIN_NATIVE_CHARS_PER_PAGE:
 
                     pages.append(
                         PageText(
@@ -281,7 +452,9 @@ def extract_pages(file_path: str, ext: str) -> list[PageText]:
                         i
                     )
 
-                    ocr_text = _ocr_pdf_page(page)
+                    ocr_text = _ocr_pdf_page(
+                        page
+                    )
 
                     pages.append(
                         PageText(
@@ -291,8 +464,29 @@ def extract_pages(file_path: str, ext: str) -> list[PageText]:
                         )
                     )
 
+                    logger.info(
+                        "Page %s OCR text length=%s",
+                        i,
+                        len(ocr_text.strip())
+                    )
+
         finally:
+
             doc.close()
+
+            logger.info(
+                "PDF closed successfully: %s",
+                file_path
+            )
+
+        logger.info(
+            "PDF extraction completed: pages=%s total_text_length=%s",
+            len(pages),
+            sum(
+                len(page.text or "")
+                for page in pages
+            )
+        )
 
         return pages
 

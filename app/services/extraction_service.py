@@ -1,6 +1,6 @@
 """
-Turns raw OCR/native page text into structured key-value data using
-Google Gemini.
+Extracts raw text (per page) from PDFs and images
+and turns it into structured key-value data using Google Gemini.
 
 The model is instructed to:
   - extract EVERY meaningful field/value it can see
@@ -8,8 +8,9 @@ The model is instructed to:
   - attach evidence (page number + short source snippet) to each value
   - return tabular/line-item data as structured arrays
 
-The LLM is only responsible for extraction. Financial validation and
-arithmetic checks are computed separately and deterministically.
+The LLM is only responsible for extraction.
+Financial validation and arithmetic checks are computed separately
+and deterministically.
 """
 
 import json
@@ -42,34 +43,39 @@ _client = (
 
 _DOC_TYPE_GUIDANCE = {
     "invoice": (
-        "This is an INVOICE. Extract header fields (invoice number, invoice date, "
-        "due date, vendor/seller name and address, buyer/customer name and address, "
-        "currency, payment terms), the full line-item table (description, quantity, "
-        "unit price, line total for each row), subtotal, tax/VAT amount and rate, "
-        "discount if any, and the grand total."
+        "This is an INVOICE. Extract header fields "
+        "(invoice number, invoice date, due date, vendor/seller name "
+        "and address, buyer/customer name and address, currency, "
+        "payment terms), the full line-item table "
+        "(description, quantity, unit price, line total for each row), "
+        "subtotal, tax/VAT amount and rate, discount if any, "
+        "and the grand total."
     ),
 
     "balance_sheet": (
-        "This is a BALANCE SHEET. Extract company name, statement date/period, "
-        "currency, and every line item under Assets (current and non-current), "
-        "Liabilities (current and non-current) and Equity, for the current period "
-        "AND the comparative prior period where shown. Include total assets, total "
-        "liabilities, total equity, and total liabilities + equity."
+        "This is a BALANCE SHEET. Extract company name, "
+        "statement date/period, currency, and every line item under "
+        "Assets (current and non-current), Liabilities "
+        "(current and non-current) and Equity, for the current period "
+        "AND the comparative prior period where shown. "
+        "Include total assets, total liabilities, total equity, "
+        "and total liabilities + equity."
     ),
 
     "profit_and_loss": (
-        "This is a PROFIT & LOSS / INCOME STATEMENT. Extract company name, period, "
-        "currency, revenue/sales, cost of goods sold, gross profit, every operating "
-        "expense line item, operating income, other income/expenses, tax, and net "
-        "profit/loss, for the current period AND comparative prior period where shown."
+        "This is a PROFIT & LOSS / INCOME STATEMENT. Extract company name, "
+        "period, currency, revenue/sales, cost of goods sold, gross profit, "
+        "every operating expense line item, operating income, "
+        "other income/expenses, tax, and net profit/loss, "
+        "for the current period AND comparative prior period where shown."
     ),
 
     "cash_flow": (
-        "This is a CASH FLOW STATEMENT. Extract company name, period, currency, "
-        "opening cash balance, all line items under Operating, Investing and "
-        "Financing activities, net cash flow from each activity, net increase/"
-        "decrease in cash, and closing cash balance, for the current period AND "
-        "comparative prior period where shown."
+        "This is a CASH FLOW STATEMENT. Extract company name, period, "
+        "currency, opening cash balance, all line items under Operating, "
+        "Investing and Financing activities, net cash flow from each activity, "
+        "net increase/decrease in cash, and closing cash balance, "
+        "for the current period AND comparative prior period where shown."
     ),
 }
 
@@ -155,10 +161,12 @@ def _pages_to_prompt(pages: list[PageText]) -> str:
     parts = []
 
     for page in pages:
+        page_text = page.text or ""
+
         parts.append(
             f"--- PAGE {page.page_number} "
             f"(source: {page.source}) ---\n"
-            f"{page.text.strip()}"
+            f"{page_text.strip()}"
         )
 
     return "\n\n".join(parts)
@@ -239,7 +247,6 @@ def extract_structured_data(
     # --------------------------------------------------------
 
     if _client is None:
-
         raise RuntimeError(
             "GEMINI_API_KEY is not configured. "
             "Set it in your .env file to enable extraction."
@@ -260,11 +267,59 @@ def extract_structured_data(
 
     document_text = _pages_to_prompt(pages)
 
+    # ========================================================
+    # DEBUG: OCR TEXT
+    # ========================================================
+
+    logger.info(
+        "========== OCR TEXT START =========="
+    )
+
+    logger.info(
+        "%s",
+        document_text
+    )
+
+    logger.info(
+        "========== OCR TEXT END =========="
+    )
+
+    logger.info(
+        "OCR TEXT LENGTH: %d",
+        len(document_text)
+    )
+
+    logger.info(
+        "OCR PAGES RECEIVED: %d",
+        len(pages)
+    )
+
+    for page in pages:
+        logger.info(
+            "PAGE %s | SOURCE=%s | TEXT_LENGTH=%d",
+            page.page_number,
+            page.source,
+            len(page.text or "")
+        )
+
+    # --------------------------------------------------------
+    # Build user prompt
+    # --------------------------------------------------------
+
     user_prompt = (
         f"{guidance}\n\n"
         "Document text (page by page):\n\n"
         f"{document_text}"
     )
+
+    logger.info(
+        "Gemini prompt length: %d characters",
+        len(user_prompt)
+    )
+
+    # --------------------------------------------------------
+    # Gemini API call
+    # --------------------------------------------------------
 
     logger.info(
         "Calling Gemini for extraction "
@@ -273,10 +328,6 @@ def extract_structured_data(
         len(pages),
         settings.GEMINI_MODEL
     )
-
-    # --------------------------------------------------------
-    # Gemini API call
-    # --------------------------------------------------------
 
     try:
 
@@ -310,11 +361,50 @@ def extract_structured_data(
         None
     )
 
+    # ========================================================
+    # DEBUG: GEMINI RAW RESPONSE
+    # ========================================================
+
+    logger.info(
+        "========== GEMINI RAW RESPONSE START =========="
+    )
+
+    logger.info(
+        "%s",
+        raw_text
+    )
+
+    logger.info(
+        "========== GEMINI RAW RESPONSE END =========="
+    )
+
+    if raw_text:
+        logger.info(
+            "GEMINI RESPONSE LENGTH: %d",
+            len(raw_text)
+        )
+    else:
+        logger.info(
+            "GEMINI RESPONSE LENGTH: 0"
+        )
+
+    # --------------------------------------------------------
+    # Check empty response
+    # --------------------------------------------------------
+
     if not raw_text:
 
         logger.error(
             "Gemini returned an empty response"
         )
+
+        try:
+            logger.error(
+                "Gemini response object: %s",
+                response
+            )
+        except Exception:
+            pass
 
         raise RuntimeError(
             "Gemini extraction returned an empty response."
@@ -328,6 +418,11 @@ def extract_structured_data(
         raw_text
     )
 
+    logger.info(
+        "CLEANED GEMINI JSON LENGTH: %d",
+        len(cleaned)
+    )
+
     # --------------------------------------------------------
     # Parse JSON
     # --------------------------------------------------------
@@ -338,16 +433,21 @@ def extract_structured_data(
             cleaned
         )
 
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
 
         logger.error(
             "Gemini returned non-JSON output: %s",
             raw_text[:1000]
         )
 
+        logger.error(
+            "JSON parsing error: %s",
+            exc
+        )
+
         raise RuntimeError(
             "Gemini extraction returned an unparsable JSON response."
-        )
+        ) from exc
 
     # --------------------------------------------------------
     # Validate basic structure
@@ -367,6 +467,28 @@ def extract_structured_data(
     parsed.setdefault(
         "tables",
         []
+    )
+
+    # ========================================================
+    # DEBUG: PARSED RESULT
+    # ========================================================
+
+    logger.info(
+        "PARSED FIELDS COUNT: %d",
+        len(parsed.get("fields", {}))
+    )
+
+    logger.info(
+        "PARSED TABLES COUNT: %d",
+        len(parsed.get("tables", []))
+    )
+
+    logger.info(
+        "PARSED GEMINI DATA: %s",
+        json.dumps(
+            parsed,
+            ensure_ascii=False
+        )[:5000]
     )
 
     # --------------------------------------------------------
