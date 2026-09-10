@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Document Intelligence Platform</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>📄 Document Intelligence Platform</h1>
+    <p class="subtitle">Extraction &middot; Validation &middot; Dashboard</p>
+  </header>
+
+  <main>
+    <section class="panel upload-panel">
+      <h2>Process a Document</h2>
+      <form id="upload-form">
+        <label for="doc-type">Document Type</label>
+        <select id="doc-type" required>
+          <option value="invoice">Invoice</option>
+          <option value="balance_sheet">Balance Sheet</option>
+          <option value="profit_and_loss">Profit &amp; Loss</option>
+          <option value="cash_flow">Cash Flow Statement</option>
+        </select>
+
+        <label for="file-input">File (PDF / JPG / PNG, max 3 pages)</label>
+        <input type="file" id="file-input" accept=".pdf,.jpg,.jpeg,.png" required />
+
+        <button type="submit" id="process-btn">Process Document</button>
+      </form>
+      <div id="upload-status"></div>
+    </section>
+
+    <section class="panel dashboard-panel">
+      <div class="dashboard-header">
+        <h2>Processed Documents</h2>
+        <button id="refresh-btn">⟳ Refresh</button>
+      </div>
+      <table id="dashboard-table">
+        <thead>
+          <tr><th>Document Name</th><th>Type</th><th>Status</th><th>Processed At</th><th></th></tr>
+        </thead>
+        <tbody id="dashboard-body"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <div id="result-modal" class="modal hidden">
+    <div class="modal-content">
+      <button class="close-btn" id="close-modal">&times;</button>
+      <div class="modal-tabs">
+        <button class="tab-btn active" data-tab="readable">Readable View</button>
+        <button class="tab-btn" data-tab="raw">Raw JSON</button>
+      </div>
+      <div id="tab-readable" class="tab-content"></div>
+      <pre id="tab-raw" class="tab-content hidden"></pre>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
